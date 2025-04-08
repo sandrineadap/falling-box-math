@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<!--Catch numbers to add up to a sum-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title></title>
+    <style>
+      canvas {
+        position: absolute;
+        top: 0px;
+        left: 0px;
+      }
+      
+      div {
+        position: absolute;
+        margin: 55px;
+        margin-top:150px;
+        font-family: arial;
+        color: #354f52;
+        font-size: 25px;
+      }
+      
+      body {
+        background-color: #f3e9d2;
+      }
+    </style>
+  </head>
+  
+  <body style='margin: 0, background-color: #f3e9d2'>
+    <canvas id='backCanvas' style='z-index:1; background-color:#f3e9d2' ></canvas>
+    <canvas id='canvas' style='z-index:2' onmousemove='getPos(event)'></canvas>
+    <canvas id='upperCanvas' style='z-index:4' onclick='start()' onmousemove='getPos(event)'></canvas>
+    <div style='z-index:3' id='instructions'>
+      <b>Objective:</b><br>
+      Catch boxes with numbers that add up to the goal (displayed on the game's background).<br>
+      If your basket is too full, you lose!<br>
+      <br>
+      
+      <b>Controls:</b><br>
+      Use the mouse to move the basket.<br>
+      <br>
+      
+      <b>Tips:</b><br>
+      <span style='color: #84a98c'>Light green boxes</span> increase your basket value.<br>
+      <span style='color: #f45b69'>Red boxes</span> decrease your basket value.<br>
+      <span style='color: #000000'>Black boxes</span> are bombs. They explode your basket value.<br>
+      Every other colour bounces. (They change colour with every bounce!)<br>
+      <br>
+      Boxes gradually go faster the more points you get!
+      </div>
+    
+    <script>
+      var instructions = document.getElementById('instructions');
+      
+      var canvas = document.getElementById('canvas');
+      var ctx = canvas.getContext('2d');
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      
+      var bCanvas = document.getElementById('backCanvas');
+      var bctx = bCanvas.getContext('2d');
+      bCanvas.width = window.innerWidth;
+      bCanvas.height = window.innerHeight;
+      
+      var uCanvas = document.getElementById('upperCanvas');
+      var uctx = uCanvas.getContext('2d');
+      uCanvas.width = window.innerWidth;
+      uCanvas.height = window.innerHeight;
+      
+      var speedIncrease = 5;
+      var boxInterval = 500;
+      
+      //flags
+      var canStart = true; //whether box can be generated with a click
+      var isPaused = false;
+      var isRunning = false;
+      var isMoving = true;
+      
+      //HEX COLOURS
+      var bgTan = '#f3e9d2';
+      var lightGreen = '#84a98c';
+      var tanText = '#e3d9c2';
+      var darkGreen = '#52796f';
+      var darkGreenText = '#354f52';
+      var red = '#f45b69';
+      var black = '#46494c';
+      var darkBlue = '#028090';
+      
+      var colours = [darkGreen, darkBlue, lightGreen];
+        
+      //STARTING SCREEN
+      ctx.fillStyle = lightGreen;
+      ctx.font = 'oblique 80px arial';
+      ctx.fillText('Click Screen to Start', 50, canvas.height-((canvas.height/10)*8));
+      
+      //BOX objects
+      var boxes = [];
+      function box(xPosBox, yPosBox, ySpeedBox, boxValue, boxColour){
+        this.xPosBox = xPosBox;
+        this.yPosBox = yPosBox;
+        this.ySpeedBox = ySpeedBox;
+        this.boxValue = boxValue;
+        this.boxColour = boxColour;
+        
+        this.ySpeedInitial = this.ySpeedBox;
+        this.alpha = 1;
+        this.n = 1;
+        this.randomBoxColour = Math.floor(Math.random()*(colours.length-1));;
+        
+        this.isFallen = false; //the box hits the bottom
+        this.isFading = true;
+        this.isBouncing = true;
+        this.canCatch = false;
+        this.canChange = false;
+        
+        this.move = function(){
+                    this.yPosBox += this.ySpeedBox;
+                    if (this.ySpeedInitial > this.ySpeedBox) {
+                      this.ySpeedBox += 0.1;
+                    }
+                  };
+        this.draw = function(){
+                    ctx.globalAlpha = this.alpha;
+                    ctx.fillStyle = this.boxColour;
+                    ctx.fillRect(this.xPosBox, this.yPosBox, 40, 40);
+                    
+                    ctx.globalAlpha = this.alpha;
+                    ctx.fillStyle = tanText;
+                    ctx.font = '30px arial';
+                    ctx.fillText(this.boxValue, this.xPosBox+12, this.yPosBox+30);
+                  };
+      
+      }
+      
+      //BASKET catcher object
+      var basket = {
+        baskWidth: 100,
+        baskHeight: 50,
+        xPosBask: (uCanvas.width/2)-50,
+        yPosBask: uCanvas.height-50,
+        baskValue: 0,
+        
+        draw: function(){
+          uctx.fillStyle = darkGreen;
+          uctx.fillRect(this.xPosBask, this.yPosBask, this.baskWidth, this.baskHeight);
+          uctx.fillStyle = tanText;
+          uctx.font = '40px arial';
+          uctx.fillText(this.baskValue, this.xPosBask+20, this.yPosBask+40);
+          if (this.xPosBask > uCanvas.width-this.baskWidth) this.xPosBask = uCanvas.width-this.baskWidth;
+          if (this.xPosBask < 0) this.xPosBask = 0;
+        },
+      }
+      //canvas.addEventListener('mousemove', getPos);
+      function getPos(event){
+         basket.xPosBask = (event.clientX)-(basket.baskWidth/2);
+      }
+      
+      //SCORE object
+      var score = {
+        scoreWidth: bCanvas.width/5,
+        scoreHeight: (bCanvas.height/10)+40,
+        xPosScore: 0,
+        yPosScore: 0,
+        scoreValue: 0,
+        
+        draw: function(){
+          bctx.strokeStyle = bgTan;
+          bctx.strokeRect(this.xPosScore, this.yPosScore, this.scoreWidth, this.scoreHeight);
+          
+          bctx.fillStyle = darkGreenText;
+          bctx.font = '60px arial';
+          bctx.fillText(this.scoreValue, this.xPosScore+20, this.scoreHeight);
+          bctx.font = '20px arial';
+          bctx.fillText('Score', this.xPosScore+20, this.scoreHeight-60);
+        }
+      }
+      
+      //BOX COUNTER object
+      var boxCounter = {
+        width: bCanvas.width/5,
+        height: bCanvas.height/10,
+        xPos: 0,
+        yPos: (score.scoreHeight)+40,
+        value: 0,
+        
+        draw: function(){
+          bctx.strokeStyle = bgTan;
+          bctx.strokeRect(this.xPos, this.yPos, this.width, this.height);
+          
+          bctx.fillStyle = darkGreen;
+          bctx.font = '30px arial';
+          bctx.fillText(this.value, this.xPos+20, this.yPos+30);
+          bctx.font = '15px arial';
+          bctx.fillText('Green Boxes Caught', this.xPos+20, this.yPos);
+        }
+      }
+      
+      //GOAL object
+      var goal = {
+        goalWidth: bCanvas.width,
+        goalHeight: bCanvas.height,
+        xPosGoal: 0,
+        yPosGoal: 0,
+        goalFontSize: 200,
+        goalValue: 10,
+        initialGoalValue: 10,
+        
+        draw: function(){
+          ctx.strokeStyle = bgTan;
+          ctx.strokeRect(this.xPosGoal, this.yPosGoal, this.goalWidth, this.goalHeight);
+          
+          ctx.fillStyle = tanText;
+          ctx.font = 'bold 80px arial';
+          ctx.fillText('G O A L :', (this.goalWidth/2)-150, this.goalHeight-((this.goalHeight/10)*8));
+          
+          ctx.font = 'bolder 300px arial';
+          ctx.fillText(this.goalValue, (this.goalWidth/2)-150, this.goalHeight-((this.goalHeight/10)*3));
+        }
+      }
+      function newGoal(){
+        goal.goalValue = Math.floor(Math.random()*10)+10;
+        if (goal.goalValue == goal.initialGoalValue){
+          goal.goalValue++;
+        }
+        goal.initialGoalValue = goal.goalValue;
+      }
+      
+      //GAME OVER object
+      var endGame = {
+        width: (uCanvas.width/2),
+        height: (uCanvas.height/3),
+        xPos: (uCanvas.width/4),
+        yPos: (uCanvas.height/3),
+        
+        draw: function(){
+          uctx.fillStyle = darkGreenText;
+          uctx.strokeStyle = darkGreen;
+          uctx.lineWidth = '10';
+          uctx.rect(this.xPos, this.yPos, this.width, this.height);
+          uctx.fill();
+          uctx.stroke();
+          
+          //text that says 'GAME OVER. You filled ____ baskets! (And then you broke the last one.)'
+          uctx.fillStyle = bgTan;
+          uctx.font = 'bolder 60px arial';
+          uctx.fillText('GAME OVER', this.xPos+(this.width/4), this.yPos+(this.height/3));
+          
+          uctx.fillStyle = tanText;
+          uctx.font = 'normal 25px arial';
+          uctx.fillText('You filled', this.xPos+(this.width/3.5), this.yPos+(this.height/1.6));
+          uctx.fillText('baskets!', this.xPos+(this.width/3.5)+225, this.yPos+(this.height/1.6));
+          
+          uctx.font = 'bold 60px arial';
+          uctx.fillText(score.scoreValue, this.xPos+(this.width/4)+150, this.yPos+(this.height/1.5));
+          
+          uctx.font = 'italic 10px arial';
+          uctx.fillText('(and then you broke the last one)', this.xPos+(this.width/2.5), this.yPos+(this.height/1.3));
+          
+          uctx.fillStyle = darkGreen;
+          uctx.fillText('click anywhere to restart', this.xPos+(this.width/2.3)-5, this.yPos+(this.height/1)-10);
+        }
+      }
+      
+      //SFX
+      function sound(src) {
+        this.sound = document.createElement('audio');
+        this.sound.src = src;
+        this.sound.setAttribute('preload', 'auto');
+        this.sound.setAttribute('controls', 'none');
+        document.body.appendChild(this.sound);
+        
+        this.play = function(){
+          this.sound.play();
+        }
+      }
+      
+      
+      //MAIN ROUTINE
+      function start(){
+        instructions.style.display = 'none';
+        if (canStart) {
+          isPaused = false;
+          canStart = false;
+          boxes = [];
+          scoreSound = new sound('file:///home/chronos/u-af273dd86466abd0cf05daa6ac0c2058a8f9a03d/MyFiles/Downloads/Final%20Project/SFX/correct-answer-marimba-02.mp3');
+          catchSound = new sound('file:///home/chronos/u-af273dd86466abd0cf05daa6ac0c2058a8f9a03d/MyFiles/Downloads/Final%20Project/SFX/menu-button-click-percussive-01.mp3');
+          bombSound = new sound('file:///home/chronos/u-af273dd86466abd0cf05daa6ac0c2058a8f9a03d/MyFiles/Downloads/Final%20Project/SFX/balloon-explode-01.mp3');
+          redSound = new sound('file:///home/chronos/u-af273dd86466abd0cf05daa6ac0c2058a8f9a03d/MyFiles/Downloads/Final%20Project/SFX/menu-button-click-percussive-14.mp3');
+          gameOverSound = new sound ('file:///home/chronos/u-af273dd86466abd0cf05daa6ac0c2058a8f9a03d/MyFiles/Downloads/Final%20Project/SFX/wrong-answer-fall-01.mp3');
+          bounceSound = new sound('file:///home/chronos/u-af273dd86466abd0cf05daa6ac0c2058a8f9a03d/MyFiles/Downloads/Final%20Project/SFX/cartoon-spring-boing-02.mp3');
+          generate();
+        }
+      }
+      
+      function generate(){
+        if (!isPaused){
+          var randomXPos = Math.floor(Math.random()*(canvas.width-40)); //any x position on the canvas
+          var randomYSpeed = Math.floor(Math.random()*5)+speedIncrease;
+          var randomBoxValue = Math.floor(Math.random()*8)+1;           //random box value from 1 to 9
+          
+          //determine initial box colour
+          var randomNumber = Math.floor(Math.random()*19)+1;
+          var boxColour;
+          if (randomNumber == 8) {
+            boxColour = red;
+            randomYSpeed += 5;
+          }
+          else if (randomNumber == 4) {
+            boxColour = black;
+            randomYSpeed += 5;
+          }
+          else if (randomNumber%5 != 0) {
+            boxColour = lightGreen;
+          }
+          else {
+            boxColour = colours[0];
+          }
+          
+          boxes[boxes.length] = new box(randomXPos, 0, randomYSpeed, randomBoxValue, boxColour);
+          
+          if(!isRunning){
+            var intID = setInterval(update, 33);
+            var intID2 = setInterval(generate, boxInterval); //var boxInterval -- makes the interval decrease by 5 every time score increases
+            isRunning = true;
+          }
+        }
+      }
+      
+      function update(){
+        if(!isPaused) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          uctx.clearRect(0, 0, uCanvas.width, uCanvas.height);
+          bctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+          basket.draw();
+          score.draw();
+          boxCounter.draw();
+          goal.draw();
+        
+          var i = 0;
+          while (i < boxes.length){
+            //if a box lands in the basket
+            if (boxes[i].xPosBox+40 >= basket.xPosBask &&
+                boxes[i].xPosBox <= basket.xPosBask+basket.baskWidth &&
+                boxes[i].yPosBox >= basket.yPosBask &&
+                !boxes[i].isFallen){
+              
+              //bouncing boxes of other colors
+              if (!boxes[i].canCatch){
+                if (boxes[i].boxColour == lightGreen || boxes[i].boxColour == red || boxes[i].boxColour == black) {
+                    boxes[i].isBouncing = false;
+                    boxes[i].canChange = false;
+                    boxes[i].canCatch = true;
+                  }
+                else if (boxes[i].isBouncing) {
+                  bounceSound.play();
+                  boxes[i].ySpeedBox = -boxes[i].ySpeedBox;
+                  boxes[i].isBouncing = false;
+                  boxes[i].canChange = true;
+                }
+                if (boxes[i].canChange) {
+                  boxes[i].boxColour = colours[boxes[i].n%7];
+                  boxes[i].isBouncing = true;
+                  boxes[i].n++;
+                }
+              }
+              //check colours
+              if (boxes[i].canCatch){
+                if (boxes[i].boxColour == lightGreen) {
+                  basket.baskValue += boxes[i].boxValue;
+                  boxCounter.value++;
+                  catchSound.play();
+                }
+                else if (boxes[i].boxColour == red) {
+                  basket.baskValue -= boxes[i].boxValue;
+                  redSound.play();
+                }
+                else if (boxes[i].boxColour == black) {
+                  basket.baskValue = 0;
+                  bombSound.play();
+                }
+                
+                boxes.splice(i, 1);
+                
+                //if you reach the goal, gain a point
+                if (basket.baskValue == goal.goalValue){
+                  score.scoreValue++;
+                  if (score.scoreValue%5 == 0){
+                    speedIncrease+=1;
+                  }
+                if (score.scoreValue%2 == 0){
+                  boxInterval-=20;
+                }
+                  basket.draw();
+                  scoreSound.play();
+                  basket.baskValue = 0;
+                  newGoal();
+                }
+                //if you exceed the goal, you lose
+                else if(basket.baskValue > goal.goalValue){
+                  isPaused = true;
+                  canStart = true;
+                  basket.draw();
+                  endGame.draw();
+                  gameOverSound.play();
+                  score.scoreValue = 0;
+                  basket.baskValue = 0;
+                  boxCounter.value = 0;
+                  newGoal();
+                  
+                  speedIncrease = 5;
+                  boxInterval = 500;
+                }
+              }
+            }
+            
+            //fading boxes animation
+            if (boxes[i].yPosBox > canvas.height-40) boxes[i].isFallen = true;
+            
+            if (boxes[i].isFallen) {
+              if(boxes[i].isFading){
+                if(boxes[i].alpha <= 0.1){
+                  boxes[i].isFading = false;
+                }
+                else{
+                  boxes[i].alpha -=0.1;
+                  boxes[i].draw();
+                }
+              }
+              else {
+                boxes[i].isFallen = false;
+                boxes.splice(i, 1);
+                i--;
+              }
+            }
+            else{
+              boxes[i].move();
+              boxes[i].draw();
+            }
+            i++;
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
